@@ -9,9 +9,7 @@ class Settings(BaseModel):
     model_id: str = os.getenv("MODEL_ID", "gpt-4o-mini")
     model_name: str = os.getenv("MODEL_NAME", "gpt-4o-mini")
 
-    embed_model: str = os.getenv(
-        "EMBED_MODEL", "text-embedding-3-small"
-    )
+    embed_model: str = os.getenv("EMBED_MODEL", "text-embedding-3-small")
 
     chunk_size: int = int(os.getenv("CHUNK_SIZE", "800"))
     chunk_overlap: int = int(os.getenv("CHUNK_OVERLAP", "100"))

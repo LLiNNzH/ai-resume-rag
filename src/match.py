@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import argparse
 import json
-from typing import Any
+import re
+from typing import Any, Dict, List, Optional
 
 from src.settings import SETTINGS
 from src.embed_store import LocalChromaStore
@@ -34,7 +35,30 @@ MATCH_SYSTEM_PROMPT = """你是一个求职简历助手。
 """
 
 
-def build_user_prompt(jd: str, retrieved_chunks: list[dict[str, Any]]):
+COMMON_SKILL_HINTS = [
+    "Python",
+    "Java",
+    "Go",
+    "C++",
+    "SQL",
+    "Linux",
+    "Docker",
+    "Kubernetes",
+    "FastAPI",
+    "Flask",
+    "Django",
+    "Spring",
+    "React",
+    "Vue",
+    "RAG",
+    "LLM",
+    "NLP",
+    "数据分析",
+    "算法",
+]
+
+
+def build_user_prompt(jd: str, retrieved_chunks: List[Dict[str, Any]]):
     joined = []
     for i, c in enumerate(retrieved_chunks, 1):
         joined.append(
@@ -42,6 +66,92 @@ def build_user_prompt(jd: str, retrieved_chunks: list[dict[str, Any]]):
         )
     context = "\n\n".join(joined)
     return f"JD如下：\n{jd}\n\n---\n已检索到的个人材料片段如下：\n{context}\n\n请生成定制简历内容。"
+
+
+def _keyword_hits(text: str):
+    lower = text.lower()
+    hits = []
+    for k in COMMON_SKILL_HINTS:
+        if k.lower() in lower:
+            hits.append(k)
+    return hits[:8]
+
+
+def generate_offline_result(jd: str, retrieved: List[Dict[str, Any]]):
+    jd_keywords = _keyword_hits(jd)
+    top_context = retrieved[0]["text"] if retrieved else ""
+    evidence = top_context[:220] + ("..." if len(top_context) > 220 else "")
+
+    matched_points = []
+    for kw in jd_keywords[:3]:
+        matched_points.append(
+            {
+                "point": f"具备与 {kw} 相关的实践或学习经验",
+                "evidence_snippet": evidence or "本地材料中存在与岗位相关的描述",
+                "why_matched": f"JD 中出现 {kw} 相关要求，材料中可检索到相关上下文。",
+            }
+        )
+
+    if not matched_points:
+        matched_points.append(
+            {
+                "point": "具备岗位相关的基础能力和项目表达能力",
+                "evidence_snippet": evidence or "本地材料中存在可用于定制简历的内容",
+                "why_matched": "基于检索到的个人材料生成的通用匹配点。",
+            }
+        )
+
+    gaps = [
+        {
+            "gap": "缺少与 JD 完全逐字对应的项目表述",
+            "suggestion": "在简历里补充具体技术栈、职责和量化结果。",
+        }
+    ]
+
+    if jd_keywords:
+        gaps.append(
+            {
+                "gap": f"岗位明确提到 {', '.join(jd_keywords[:3])}，需要进一步补充对应经历",
+                "suggestion": "把与你最接近的项目经历改写成相同术语。",
+            }
+        )
+
+    summary = """熟悉岗位定制化简历输出流程，能够基于个人材料与 JD 生成匹配要点、缺口和改写建议。"""
+    if jd_keywords:
+        summary = f"围绕 {', '.join(jd_keywords[:3])} 等岗位要求，定制简历表达并输出结构化结果。"
+
+    skills = "、".join(jd_keywords[:6]) if jd_keywords else "Python、RAG、LLM、简历定制"
+
+    experience_projects = """- 基于个人材料构建检索增强生成流程，输出可直接用于投递的 Markdown 简历片段。
+- 通过本地向量检索召回相关证据，辅助岗位匹配和内容改写。"""
+
+    return {
+        "matched_points": matched_points,
+        "gaps": gaps,
+        "tailored_sections": {
+            "summary": summary,
+            "skills": skills,
+            "experience_projects": experience_projects,
+        },
+        "questions_to_clarify": ["如果你愿意提供更完整的个人材料，定制结果会更精确。"],
+    }
+
+
+def generate_result(jd: str, retrieved: List[Dict[str, Any]]):
+    client = build_client()
+    if client is None:
+        return generate_offline_result(jd, retrieved)
+
+    resp = client.chat.completions.create(
+        model=SETTINGS.model_id,
+        messages=[
+            {"role": "system", "content": MATCH_SYSTEM_PROMPT},
+            {"role": "user", "content": build_user_prompt(jd, retrieved)},
+        ],
+        temperature=0.2,
+    )
+    content = resp.choices[0].message.content
+    return json.loads(content)
 
 
 def main():
@@ -52,7 +162,7 @@ def main():
     ap.add_argument("--out_md", default="output_match.md")
     ap.add_argument("--collection", default="resume_chunks")
     args = ap.parse_args()
-    
+
     with open(args.jd_file, "r", encoding="utf-8", errors="ignore") as f:
         jd = f.read().strip()
 
@@ -63,22 +173,8 @@ def main():
     )
 
     retrieved = store.query(jd, top_k=args.top_k)
+    data = generate_result(jd, retrieved)
 
-    client = build_client()
-
-    resp = client.chat.completions.create(
-        model=SETTINGS.model_id,
-        messages=[
-            {"role": "system", "content": MATCH_SYSTEM_PROMPT},
-            {"role": "user", "content": build_user_prompt(jd, retrieved)},
-        ],
-        temperature=0.2,
-    )
-
-    content = resp.choices[0].message.content
-    data = json.loads(content)
-
-    # 渲染 Markdown
     md = []
     md.append("# 匹配要点（带证据）")
     for x in data.get("matched_points", []):

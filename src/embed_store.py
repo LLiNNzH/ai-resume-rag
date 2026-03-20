@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import hashlib
+import math
+
 # Chroma may require sqlite3 >= 3.35.0 in some environments.
 # If the system sqlite is too old, pysqlite3-binary provides a newer sqlite.
 try:
@@ -13,7 +16,7 @@ except Exception:
 import glob
 import os
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Iterable, List
 
 import chromadb
 from chromadb.config import Settings as ChromaSettings
@@ -22,12 +25,30 @@ from openai import OpenAI
 
 from src.settings import SETTINGS
 
+EMBED_DIM = 384
+
 
 @dataclass
 class DocChunk:
     id: str
     text: str
     source: str
+
+
+def _hash_to_unit_floats(seed: str, dim: int = EMBED_DIM):
+    out = []
+    counter = 0
+    while len(out) < dim:
+        h = hashlib.sha256((seed + f"::{counter}").encode("utf-8")).digest()
+        for i in range(0, len(h), 4):
+            if len(out) >= dim:
+                break
+            chunk = h[i : i + 4]
+            val = int.from_bytes(chunk, "big", signed=False)
+            # map to [-1, 1]
+            out.append((val / 0xFFFFFFFF) * 2.0 - 1.0)
+        counter += 1
+    return out
 
 
 class LocalChromaStore:
@@ -42,14 +63,19 @@ class LocalChromaStore:
             metadata={"hnsw:space": "cosine"},
         )
         self.embed_model_name = embed_model_name
-        self.openai = OpenAI(
-            base_url=SETTINGS.base_url,
-            api_key=SETTINGS.api_key or "",
-        )
+        self.use_openai_embeddings = bool(SETTINGS.api_key.strip())
+        self.openai = None
+        if self.use_openai_embeddings:
+            self.openai = OpenAI(
+                base_url=SETTINGS.base_url,
+                api_key=SETTINGS.api_key,
+            )
 
     def _embed(self, texts):
-        resp = self.openai.embeddings.create(model=self.embed_model_name, input=texts)
-        return [d.embedding for d in resp.data]
+        if self.use_openai_embeddings and self.openai is not None:
+            resp = self.openai.embeddings.create(model=self.embed_model_name, input=texts)
+            return [d.embedding for d in resp.data]
+        return [_hash_to_unit_floats(t) for t in texts]
 
     def add_documents(self, docs: Iterable[DocChunk], batch_size: int = 64):
         ids = []
