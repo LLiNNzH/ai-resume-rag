@@ -4,7 +4,7 @@ import os
 class Settings(BaseModel):
     provider: str = os.getenv("PROVIDER", "openai")
     base_url: str = os.getenv("BASE_URL", "https://api.openai.com/v1")
-    api_key: str | None = os.getenv("API_KEY")
+    api_key: str = os.getenv("API_KEY") or ""
 
     model_id: str = os.getenv("MODEL_ID", "gpt-4o-mini")
     model_name: str = os.getenv("MODEL_NAME", "gpt-4o-mini")

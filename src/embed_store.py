@@ -49,7 +49,7 @@ class LocalChromaStore:
             api_key=SETTINGS.api_key or "",
         )
 
-    def _embed(self, texts: list[str]) -> list[list[float]]:
+    def _embed(self, texts):
         # OpenAI embeddings API
         resp = self.openai.embeddings.create(
             model=self.embed_model_name,

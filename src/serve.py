@@ -20,7 +20,7 @@ client = build_client()
 
 class MatchReq(BaseModel):
     jd: str
-    top_k: int | None = None
+    top_k: int = None
 
 @app.post("/match")
 def match(req: MatchReq):
