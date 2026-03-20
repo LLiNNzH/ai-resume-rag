@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Optional
+
 from fastapi import FastAPI
 from pydantic import BaseModel
 
@@ -18,9 +20,11 @@ store = LocalChromaStore(
 
 client = build_client()
 
+
 class MatchReq(BaseModel):
     jd: str
-    top_k: int = None
+    top_k: Optional[int] = None
+
 
 @app.post("/match")
 def match(req: MatchReq):
@@ -35,6 +39,7 @@ def match(req: MatchReq):
         temperature=0.2,
     )
     import json
+
     content = resp.choices[0].message.content
     data = json.loads(content)
     return data
