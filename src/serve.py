@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 from src.settings import SETTINGS
 from src.embed_store import LocalChromaStore
-from src.match import build_user_prompt, MATCH_SYSTEM_PROMPT, generate_result
+from src.match import generate_result
 
 app = FastAPI(title="AI Resume RAG")
 
