@@ -1,33 +1,13 @@
-# AI Resume RAG（简历匹配 + RAG PoC，Chroma + OpenAI）
+# ai-resume-rag（RAG 简历匹配 PoC，Chroma + OpenAI）
 
-这是一个**可落地的最小可行项目（PoC）**：
-- 用 **RAG** 把你的个人材料向量化（材料在本地 `data/`）
-- 每次提供不同 **JD（岗位描述）**，用 **OpenAI** 生成：
-  - 匹配要点（带“证据片段”）
-  - 缺口与补强建议
-  - 可直接粘贴到简历的定制段落（输出 Markdown）
-
-> 重点：为避免仓库变大，**本项目不会把 `data/` 或 `data/index/` 上传到 GitHub**。
+这是一个**开箱即用的简历定制 PoC**：
+- 你把个人材料放到 `data/personal/`（本地，不提交 GitHub）
+- `ingest.py` 把材料向量化进 `data/index/`（本地，不提交）
+- 每次输入 JD，`match.py` 调用 OpenAI 生成**按岗位定制的 Markdown**（含：匹配要点/缺口/建议）
 
 ---
 
-## 0. 仓库应该包含什么（你只提交这些）
-
-建议提交：
-- `src/`（代码）
-- `requirements.txt`
-- `.env.example`
-- `README.md`
-- `.gitignore`
-
-不提交（强制）：
-- `data/`（个人材料）
-- `data/index/`（向量索引/向量库）
-- `.venv/`
-
----
-
-## 1. 环境准备（简单）
+## 0. 环境准备
 
 ```bash
 cd /root/.openclaw/workspace/ai-resume-rag
@@ -38,38 +18,34 @@ pip install -r requirements.txt
 
 ---
 
-## 2. 配置 OpenAI（可切 OpenAI 兼容 base_url + 可切模型）
+## 1. 配置 OpenAI（或 OpenAI 兼容 base_url）
 
 ```bash
 cp .env.example .env
 ```
 
-编辑 `.env`，至少填写：
-- `BASE_URL`：例如 `https://api.openai.com/v1` 或你的网关地址
+编辑 `.env`（最少需要）：
+- `BASE_URL`：例如 `https://api.openai.com/v1` 或你的网关
 - `API_KEY`
 - `MODEL_ID`：例如 `gpt-4o-mini`
 - `EMBED_MODEL`：例如 `text-embedding-3-small`
 
-（`PROVIDER` 只是展示字段，不影响请求；只要你的兼容服务满足 OpenAI 接口格式即可。）
-
 ---
 
-## 3. 准备个人材料（放到本地 data/，不进 Git）
+## 2. 放材料（本地，不进仓库）
 
 ```bash
 mkdir -p data/personal
 ```
 
-把材料放到 `data/personal/`（支持 `.txt` / `.md`）：
-- `resume_full.md`（简历全文文本，可复制整理）
-- `projects.md`（项目经历）
-- `skills.md`（技能清单）
-
-> 你有 PDF 的话：先把 PDF 内容复制/导出为文本到 md/txt 再放进来。
+把文本材料放进去（支持 `.md` / `.txt`）：
+- `resume_full.md`：简历全文（建议直接复制文本整理）
+- `projects.md`：项目经历
+- `skills.md`：技能清单
 
 ---
 
-## 4. 一次性建索引（输出到 data/index/，不进 Git）
+## 3. 建索引（一次性）
 
 ```bash
 python src/ingest.py \
@@ -77,31 +53,14 @@ python src/ingest.py \
   --persist_dir data/index
 ```
 
-建完会得到：`data/index/`。
-
 ---
 
-## 5. 启动服务（serve.py）
+## 4. 生成定制结果（每次投递）
 
-```bash
-uvicorn src.serve:app --host 0.0.0.0 --port 8000
-```
+### 4.1 准备 JD 文件
+新建 `jd_sample.txt`，粘贴岗位 JD。
 
----
-
-## 6. 按 JD 生成定制简历内容（输出 Markdown）
-
-### 6.1 FastAPI 接口（可选）
-POST `http://localhost:8000/match`
-
-body 示例：
-```json
-{"jd":"岗位 JD 文本放这里","top_k":8}
-```
-
-### 6.2 CLI 直接生成 `output_match.md`（推荐）
-
-先准备 `jd_sample.txt`（写入岗位 JD 文本）。
+### 4.2 运行匹配，输出 Markdown
 
 ```bash
 python src/match.py \
@@ -110,32 +69,41 @@ python src/match.py \
   --persist_dir data/index
 ```
 
-输出 `output_match.md`，里面包含：
-- 匹配要点（带证据片段）
-- 缺口与补强建议
-- 可直接粘贴到简历的 Markdown 段落
+输出：`output_match.md`，结构如下：
+- `# 匹配要点（带证据）`
+- `# 缺口与补强建议`
+- `# 可直接粘贴到简历的定制段落（Markdown）`
+
+你直接复制粘贴到简历/Word/飞书文档即可。
 
 ---
 
-## 7. 简历里“AI 项目亮点”怎么写（可直接复制）
+## 5. （可选）启动服务
 
-**AI 简历定制助手（RAG + LLM, PoC）**
-- 基于个人材料构建本地 RAG：对简历/项目/技能文本分块并向量化，实现岗位相关证据检索。
-- 每次输入不同 JD，通过检索证据增强生成，自动输出“匹配要点（带证据）/缺口与补强建议/定制简历段落（Markdown）”。
-- 使用 OpenAI 模型生成结构化结果，并提供 FastAPI/CLI 用于快速按岗位定制投递内容。
+```bash
+uvicorn src.serve:app --host 0.0.0.0 --port 8000
+```
+
+调用接口：
+- `POST http://localhost:8000/match`
+
+请求体示例：
+```json
+{"jd":"岗位JD文本放这里","top_k":8}
+```
 
 ---
 
-## 8. GitHub 提交流程（保证不提交 data/.venv）
+## 6. GitHub 提交流程（不会提交 data/.venv）
 
-1）确保 `.gitignore` 存在并包含：
+本仓库已配置 `.gitignore`，确保不提交：
 - `.venv/`
 - `data/`
 - `data/index/`
 
-2）提交：
+提交命令：
 ```bash
 git add README.md requirements.txt src .env.example .gitignore
-git commit -m "ai resume rag (chroma + openai)"
+git commit -m "init"
 git push
 ```
