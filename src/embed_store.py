@@ -1,5 +1,15 @@
 from __future__ import annotations
 
+# Chroma may require sqlite3 >= 3.35.0 in some environments.
+# If the system sqlite is too old, pysqlite3-binary provides a newer sqlite.
+try:
+    import sys
+    import pysqlite3  # type: ignore
+
+    sys.modules["sqlite3"] = pysqlite3
+except Exception:
+    pass
+
 import glob
 import os
 from dataclasses import dataclass
@@ -7,9 +17,7 @@ from typing import Iterable
 
 import chromadb
 from chromadb.config import Settings as ChromaSettings
-
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-
 from openai import OpenAI
 
 from src.settings import SETTINGS
@@ -23,17 +31,7 @@ class DocChunk:
 
 
 class LocalChromaStore:
-    """Chroma + OpenAI embeddings (no local torch/sentence-transformers).
-
-    embeddings are computed on-demand and stored in chroma.
-    """
-
-    def __init__(
-        self,
-        persist_dir: str,
-        embed_model_name: str,
-        collection_name: str = "resume_chunks",
-    ):
+    def __init__(self, persist_dir: str, embed_model_name: str, collection_name: str = "resume_chunks"):
         os.makedirs(persist_dir, exist_ok=True)
         self.client = chromadb.PersistentClient(
             path=persist_dir,
@@ -50,12 +48,7 @@ class LocalChromaStore:
         )
 
     def _embed(self, texts):
-        # OpenAI embeddings API
-        resp = self.openai.embeddings.create(
-            model=self.embed_model_name,
-            input=texts,
-        )
-        # resp.data is in order
+        resp = self.openai.embeddings.create(model=self.embed_model_name, input=texts)
         return [d.embedding for d in resp.data]
 
     def add_documents(self, docs: Iterable[DocChunk], batch_size: int = 64):
@@ -87,20 +80,12 @@ class LocalChromaStore:
             include=["documents", "metadatas", "distances"],
         )
         chunks = []
-        for doc, meta, dist in zip(
-            res["documents"][0], res["metadatas"][0], res["distances"][0]
-        ):
-            chunks.append(
-                {
-                    "text": doc,
-                    "source": meta.get("source", ""),
-                    "distance": dist,
-                }
-            )
+        for doc, meta, dist in zip(res["documents"][0], res["metadatas"][0], res["distances"][0]):
+            chunks.append({"text": doc, "source": meta.get("source", ""), "distance": dist})
         return chunks
 
 
-def load_text_files(input_dir: str) -> list[tuple[str, str]]:
+def load_text_files(input_dir: str):
     paths = []
     for ext in ("*.txt", "*.md"):
         paths.extend(glob.glob(os.path.join(input_dir, ext)))
@@ -119,7 +104,7 @@ def chunk_documents(input_dir: str, chunk_size: int, chunk_overlap: int):
     )
 
     raw_items = load_text_files(input_dir)
-    out: list[DocChunk] = []
+    out = []
     for p, text in raw_items:
         parts = splitter.split_text(text)
         for idx, part in enumerate(parts):
