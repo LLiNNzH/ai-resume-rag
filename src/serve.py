@@ -7,7 +7,7 @@ from src.settings import SETTINGS
 from src.embed_store import LocalChromaStore
 from src.match import generate_result
 
-app = FastAPI(title="AI Resume RAG")
+app = FastAPI(title="Resume JD Optimizer")
 
 store = LocalChromaStore(
     persist_dir="data/index",

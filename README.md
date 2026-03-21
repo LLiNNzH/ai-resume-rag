@@ -1,9 +1,22 @@
-# ai-resume-rag（RAG 简历匹配 PoC，Chroma + OpenAI）
+# ai-resume-rag（简历 JD 对齐与自动优化）
 
-可运行的简历定制 PoC（输出 Markdown）。
-- 个人材料放本地 `data/personal/`（不提交到 GitHub）
-- 向量索引输出到本地 `data/index/`（不提交到 GitHub）
-- 代码 + README 发布到 GitHub
+这是一个面向求职场景的简历定制工具。
+
+用户输入：
+- 原始简历材料（本地 `data/personal/`）
+- 目标岗位 JD（`jd_sample.txt` 或接口传入）
+
+系统输出：
+- 岗位定制版简历摘要
+- 技能栏重排建议
+- 项目/经历改写版本
+- 缺口与补强建议
+
+核心目标不是“打分”，而是：
+1. 解析 JD，提取岗位真正关心的能力点；
+2. 对照个人材料，找出该强化哪些经历和关键词；
+3. 直接生成可以粘贴进简历的岗位定制版本；
+4. 全程坚持真实经历，不编造不存在的项目或成果。
 
 ---
 
@@ -64,7 +77,7 @@ python -m src.ingest \
 
 ---
 
-## 5) 按 JD 生成结果（输出 Markdown）
+## 5) 按 JD 生成定制简历（输出 Markdown）
 
 1）写 `jd_sample.txt`（粘贴岗位 JD）
 
@@ -78,6 +91,11 @@ python -m src.match \
 ```
 
 输出：`output_match.md`
+
+里面会包含：
+- JD 对齐要点
+- 缺口与补强建议
+- 可直接粘贴进简历的定制段落
 
 ---
 
@@ -103,6 +121,6 @@ POST `http://localhost:8000/match`，body 示例：
 提交代码：
 ```bash
 git add README.md requirements.txt src .env.example .gitignore
-git commit -m "init ai-resume-rag (no data)"
+git commit -m "refine resume jd optimization flow"
 git push
 ```

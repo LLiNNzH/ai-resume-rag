@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from src.settings import SETTINGS
 from src.embed_store import LocalChromaStore
@@ -11,7 +11,7 @@ from src.openai_client import build_client
 
 
 MATCH_SYSTEM_PROMPT = """你是一个资深求职简历优化器。
-你的目标不是“抽取资料”，而是：
+你的目标不是“打分”，而是：
 1) 基于已检索到的个人材料，按目标岗位重新优化简历表达；
 2) 保留原简历里已经有的强项，不要无缘无故删掉亮点；
 3) 在不编造事实的前提下，把内容改写得更贴合岗位、更像真实投递版本；
@@ -23,6 +23,7 @@ MATCH_SYSTEM_PROMPT = """你是一个资深求职简历优化器。
 - 如果某个点无法确认，写进 questions_to_clarify，而不是猜。
 - 改写时优先：保留原事实 > 岗位化重排 > 语言增强 > 量化表达（只有在材料支持时才能量化）。
 - 不要把简历越改越短；如果某一段原本有价值，改写后应至少保留相同信息密度。
+- 输出重点应是“可直接粘贴到简历里的定制版本”，不是泛泛的分析结论。
 
 输出必须是 JSON，不要夹带任何解释文字。结构如下：
 {
@@ -91,7 +92,7 @@ def build_user_prompt(jd: str, retrieved_chunks: List[Dict[str, Any]]):
     return (
         f"JD如下：\n{jd}\n\n"
         f"---\n已检索到的个人材料片段如下：\n{context}\n\n"
-        "请基于这些材料生成岗位定制版简历内容。"
+        "请基于这些材料生成岗位定制版简历内容，重点输出可以直接用于投递的改写版本。"
     )
 
 
@@ -125,18 +126,15 @@ def _shorten(text: str, limit: int = 220):
 
 def _extract_json(text: str):
     text = text.strip()
-    # 先尝试直接解析
     try:
         return json.loads(text)
     except Exception:
         pass
 
-    # 再从 fenced code 中取 JSON
     m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.S)
     if m:
         return json.loads(m.group(1))
 
-    # 最后尝试截取第一个大括号到最后一个大括号
     start = text.find("{")
     end = text.rfind("}")
     if start != -1 and end != -1 and end > start:
@@ -189,31 +187,25 @@ def generate_offline_result(jd: str, retrieved: List[Dict[str, Any]]):
             }
         )
 
-    summary = (
-        "本版本优先保留原简历亮点，再根据岗位要求重排内容与措辞，输出更适合投递的简历摘要。"
-    )
+    summary = "本版本优先保留原简历亮点，再根据岗位要求重排内容与措辞，输出更适合投递的简历摘要。"
     if jd_keywords:
-        summary = (
-            f"围绕 {', '.join(jd_keywords[:3])} 等岗位要求，保留原有亮点并做岗位化重写。"
-        )
+        summary = f"围绕 {', '.join(jd_keywords[:3])} 等岗位要求，保留原有亮点并做岗位化重写。"
 
     skills = "、".join(jd_keywords[:6]) if jd_keywords else "Python、RAG、LLM、简历定制"
 
     if retrieved:
         top_bullets = []
         for idx, c in enumerate(retrieved[:3], 1):
-            top_bullets.append(
-                f"{idx}. {_shorten(c.get('text',''), 120)}"
-            )
+            top_bullets.append(f"{idx}. {_shorten(c.get('text', ''), 120)}")
         experience_projects = (
-            "- 基于个人材料构建检索增强简历定制流程，按岗位要求重写投递内容。\n"
-            "- 保留原简历已有亮点，并在不改变事实的前提下增强岗位匹配度。\n"
+            "- 基于个人材料构建 JD 对齐与简历定制流程，按岗位要求重写投递内容。\n"
+            "- 保留原简历已有亮点，并在不改变事实的前提下增强岗位贴合度。\n"
             + "\n".join(f"- {b}" for b in top_bullets)
         )
     else:
         experience_projects = (
-            "- 基于个人材料构建检索增强简历定制流程，按岗位要求重写投递内容。\n"
-            "- 保留原简历已有亮点，并在不改变事实的前提下增强岗位匹配度。"
+            "- 基于个人材料构建 JD 对齐与简历定制流程，按岗位要求重写投递内容。\n"
+            "- 保留原简历已有亮点，并在不改变事实的前提下增强岗位贴合度。"
         )
 
     resume_version = (
@@ -262,7 +254,7 @@ def generate_result(jd: str, retrieved: List[Dict[str, Any]]):
 
 def _render_markdown(data: Dict[str, Any]) -> str:
     md: List[str] = []
-    md.append("# 匹配要点（带证据）")
+    md.append("# JD 对齐要点（带证据）")
     for x in data.get("matched_points", []):
         md.append(
             f"- **要点**：{x.get('point','')}\n"
