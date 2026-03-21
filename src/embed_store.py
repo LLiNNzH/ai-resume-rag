@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import hashlib
+import html
 import math
+import re
 
 # Chroma may require sqlite3 >= 3.35.0 in some environments.
 # If the system sqlite is too old, pysqlite3-binary provides a newer sqlite.
@@ -33,6 +35,26 @@ class DocChunk:
     id: str
     text: str
     source: str
+
+
+def sanitize_resume_text(text: str) -> str:
+    """Clean resume-like text before chunking / embedding.
+
+    This strips HTML/style/script wrappers, converts a few block tags to line
+    breaks, unescapes entities, and normalizes whitespace so the stored chunks
+    are readable and usable for resume generation.
+    """
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", "\n", text)
+    text = re.sub(r"(?i)<br\s*/?>", "\n", text)
+    text = re.sub(r"(?i)</(p|div|li|h[1-6]|tr|td|th|section|article|ul|ol)>", "\n", text)
+    text = re.sub(r"(?i)<[^>]+>", " ", text)
+    text = html.unescape(text)
+    text = re.sub(r"[ \t\f\v]+", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    text = re.sub(r"\s+\n", "\n", text)
+    text = re.sub(r"\n\s+", "\n", text)
+    return text.strip()
 
 
 def _hash_to_unit_floats(seed: str, dim: int = EMBED_DIM):
@@ -118,7 +140,7 @@ def load_text_files(input_dir: str):
     items = []
     for p in paths:
         with open(p, "r", encoding="utf-8", errors="ignore") as f:
-            items.append((p, f.read()))
+            items.append((p, sanitize_resume_text(f.read())))
     return items
 
 

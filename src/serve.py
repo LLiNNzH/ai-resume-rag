@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 from src.settings import SETTINGS
 from src.embed_store import LocalChromaStore
-from src.match import generate_result
+from src.match import generate_resume
 
 app = FastAPI(title="Resume JD Optimizer")
 
@@ -25,4 +25,4 @@ class MatchReq(BaseModel):
 def match(req: MatchReq):
     top_k = req.top_k or SETTINGS.top_k
     retrieved = store.query(req.jd, top_k=top_k)
-    return generate_result(req.jd, retrieved)
+    return {"resume_markdown": generate_resume(req.jd, retrieved)}

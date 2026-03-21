@@ -10,99 +10,36 @@ from src.embed_store import LocalChromaStore
 from src.openai_client import build_client
 
 
-MATCH_SYSTEM_PROMPT = """你是一个资深求职简历优化器。
-你的目标不是“打分”，而是：
-1) 基于已检索到的个人材料，按目标岗位重新优化简历表达；
-2) 保留原简历里已经有的强项，不要无缘无故删掉亮点；
-3) 在不编造事实的前提下，把内容改写得更贴合岗位、更像真实投递版本；
-4) 如果某项信息不足，宁可保持保守、提示补充，也不要夸大或伪造。
+RESUME_SYSTEM_PROMPT = """你是一个资深求职简历改写器。
+你的任务只有一个：根据目标岗位 JD 和检索到的个人材料，输出一份“完整、可直接投递”的岗位定制简历。
 
 硬性要求：
-- 只能使用已检索到的材料和 JD 中明确给出的要求。
-- 所有“成果/职责/技术”必须能从材料中找到依据。
-- 如果某个点无法确认，写进 questions_to_clarify，而不是猜。
-- 改写时优先：保留原事实 > 岗位化重排 > 语言增强 > 量化表达（只有在材料支持时才能量化）。
-- 不要把简历越改越短；如果某一段原本有价值，改写后应至少保留相同信息密度。
-- 输出重点应是“可直接粘贴到简历里的定制版本”，不是泛泛的分析结论。
+- 只输出简历正文，不要输出任何解释、分析、提示词痕迹、评分、缺口、建议、证据列表。
+- 只能基于输入材料改写，不要编造不存在的经历、项目、学校、公司、技能或成果。
+- 如果某项信息不明确，宁可省略或保守表达，也不要乱补。
+- 输出必须是 Markdown，结构清晰，像真实简历成品。
+- 尽量让内容完整：包括姓名/联系方式、教育经历、技能、项目经历、实习/工作经历、自我评价等。
+- 如果材料中没有某个模块，就不要硬造；可以不写该模块。
+- 语言要自然、专业、像真实投递版简历，不要像模型说明书。
+- 优先对齐 JD 的关键词和职责，但必须保持事实真实。
 
-输出必须是 JSON，不要夹带任何解释文字。结构如下：
-{
-  "matched_points": [
-    {
-      "point": "与岗位匹配的能力点",
-      "evidence_snippet": "从材料中直接摘取或近义复述的证据",
-      "why_matched": "为什么这个点与 JD 匹配"
-    }
-  ],
-  "gaps": [
-    {
-      "gap": "JD 要求但材料里不够明确的部分",
-      "suggestion": "如何补充或如何在简历里保守表达"
-    }
-  ],
-  "tailored_sections": {
-    "summary": "适合投递该岗位的简历摘要",
-    "skills": "按岗位重排后的技能清单",
-    "experience_projects": "按岗位优化后的项目/经历表述",
-    "resume_version": "一个可以直接粘贴进简历的精简版本",
-    "preservation_notes": "明确说明保留了哪些原简历亮点"
-  },
-  "questions_to_clarify": ["..."]
-}
+输出格式要求：
+- 直接输出一份 Markdown 简历正文。
+- 不要输出 JSON，不要输出代码块，不要输出任何前后缀说明。
 """
 
 
-COMMON_SKILL_HINTS = [
-    "Python",
-    "Java",
-    "Go",
-    "C++",
-    "SQL",
-    "Linux",
-    "Docker",
-    "Kubernetes",
-    "FastAPI",
-    "Flask",
-    "Django",
-    "Spring",
-    "React",
-    "Vue",
-    "RAG",
-    "LLM",
-    "NLP",
-    "机器学习",
-    "深度学习",
-    "数据分析",
-    "算法",
-    "后端",
-    "前端",
-    "测试",
-    "分布式",
-    "微服务",
-]
-
-
-def build_user_prompt(jd: str, retrieved_chunks: List[Dict[str, Any]]):
-    joined = []
-    for i, c in enumerate(retrieved_chunks, 1):
-        joined.append(
-            f"[材料片段{i}] (source={c.get('source','')}, distance={c.get('distance','')})\n{c.get('text','')}"
-        )
-    context = "\n\n".join(joined) if joined else "（没有检索到材料片段）"
-    return (
-        f"JD如下：\n{jd}\n\n"
-        f"---\n已检索到的个人材料片段如下：\n{context}\n\n"
-        "请基于这些材料生成岗位定制版简历内容，重点输出可以直接用于投递的改写版本。"
-    )
-
-
-def _keyword_hits(text: str):
-    lower = text.lower()
-    hits = []
-    for k in COMMON_SKILL_HINTS:
-        if k.lower() in lower:
-            hits.append(k)
-    return hits[:8]
+def _clean_text(text: str) -> str:
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", "\n", text)
+    text = re.sub(r"(?i)<br\s*/?>", "\n", text)
+    text = re.sub(r"(?i)</(p|div|li|h[1-6]|tr|td|th|section|article|ul|ol)>", "\n", text)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"[ \t\f\v]+", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    text = re.sub(r"\s+\n", "\n", text)
+    text = re.sub(r"\n\s+", "\n", text)
+    return text.strip()
 
 
 def _dedupe_chunks(chunks: List[Dict[str, Any]]):
@@ -117,173 +54,120 @@ def _dedupe_chunks(chunks: List[Dict[str, Any]]):
     return out
 
 
-def _shorten(text: str, limit: int = 220):
-    text = re.sub(r"\s+", " ", text).strip()
+def _truncate(text: str, limit: int = 1200) -> str:
+    text = _clean_text(text)
     if len(text) <= limit:
         return text
     return text[: limit - 3] + "..."
 
 
-def _extract_json(text: str):
+def _select_context_blocks(retrieved_chunks: List[Dict[str, Any]], max_chars: int = 6500) -> str:
+    blocks = []
+    total = 0
+    for i, c in enumerate(_dedupe_chunks(retrieved_chunks), 1):
+        source = c.get("source", "")
+        text = _clean_text(c.get("text", ""))
+        if not text:
+            continue
+        block = f"[材料片段{i}] source={source}\n{text}"
+        if total + len(block) > max_chars:
+            remaining = max_chars - total
+            if remaining > 200:
+                block = block[:remaining]
+                blocks.append(block)
+            break
+        blocks.append(block)
+        total += len(block)
+    return "\n\n".join(blocks) if blocks else "（未检索到可用个人材料）"
+
+
+def build_user_prompt(jd: str, retrieved_chunks: List[Dict[str, Any]]):
+    context = _select_context_blocks(retrieved_chunks)
+    return (
+        "目标岗位 JD:\n"
+        f"{_clean_text(jd)}\n\n"
+        "个人材料片段:\n"
+        f"{context}\n\n"
+        "请基于以上信息，直接输出一份完整的岗位定制版简历 Markdown。"
+        "注意：不要输出解释、不要输出分析、不要输出任何提词器痕迹。"
+    )
+
+
+def _strip_wrappers(text: str) -> str:
     text = text.strip()
-    try:
-        return json.loads(text)
-    except Exception:
-        pass
-
-    m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.S)
-    if m:
-        return json.loads(m.group(1))
-
-    start = text.find("{")
-    end = text.rfind("}")
-    if start != -1 and end != -1 and end > start:
-        return json.loads(text[start : end + 1])
-
-    raise ValueError("Model output is not valid JSON")
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:markdown|md|json)?\s*", "", text)
+        text = re.sub(r"\s*```$", "", text)
+    text = text.strip()
+    # remove obvious leftover prompt labels if the model leaks them
+    text = re.sub(r"(?m)^\s*[-*]?\s*(要点|缺口|建议|证据|匹配原因|Summary|Skills|Experience/Projects|Resume Version|Preservation Notes)\s*[:：].*$", "", text)
+    text = re.sub(r"(?m)^\s*#\s*JD 对齐要点.*$", "", text)
+    text = re.sub(r"(?m)^\s*#\s*缺口与补强建议.*$", "", text)
+    return text.strip()
 
 
-def generate_offline_result(jd: str, retrieved: List[Dict[str, Any]]):
+def _normalize_model_output(content: str) -> str:
+    content = _strip_wrappers(content)
+    content = _clean_text(content)
+    # keep markdown structure but remove accidental huge HTML fragments
+    content = re.sub(r"<style[^>]*>.*?</style>", "", content, flags=re.S | re.I)
+    content = re.sub(r"<script[^>]*>.*?</script>", "", content, flags=re.S | re.I)
+    content = re.sub(r"\n{3,}", "\n\n", content)
+    return content.strip()
+
+
+def _fallback_resume(jd: str, retrieved: List[Dict[str, Any]]) -> str:
     retrieved = _dedupe_chunks(retrieved)
-    jd_keywords = _keyword_hits(jd)
-    top_context = retrieved[0]["text"] if retrieved else ""
-    evidence = _shorten(top_context, 260) if top_context else "本地材料中存在可用于定制简历的内容"
+    blocks = []
+    for c in retrieved[:6]:
+        text = _clean_text(c.get("text", ""))
+        if text:
+            blocks.append(text)
 
-    matched_points = []
-    for kw in jd_keywords[:4]:
-        matched_points.append(
-            {
-                "point": f"围绕 {kw} 的相关经验/表达方式",
-                "evidence_snippet": evidence,
-                "why_matched": f"JD 中出现 {kw} 相关要求，材料中可以基于检索片段进行保守改写。",
-            }
-        )
+    merged = "\n\n".join(blocks) if blocks else ""
+    merged = _truncate(merged, 5000)
+    if not merged:
+        merged = "（未检索到足够材料，建议补充完整简历文本后重新生成）"
 
-    if not matched_points:
-        matched_points.append(
-            {
-                "point": "保留原有项目/经历的核心亮点，并重写为更适合投递的表达",
-                "evidence_snippet": evidence,
-                "why_matched": "没有强关键词时，优先做保守重写，避免比原简历更差。",
-            }
-        )
-
-    gaps = [
-        {
-            "gap": "材料中部分经历可能还缺少岗位直连的术语和量化结果",
-            "suggestion": "在简历里保留原事实的基础上，补充技术栈、职责边界和结果描述。",
-        },
-        {
-            "gap": "JD 要求与原简历表述之间可能存在措辞不一致",
-            "suggestion": "把同一个经历改写成更接近 JD 关键词的版本，但不要新增未经证实的能力。",
-        },
-    ]
-
-    if jd_keywords:
-        gaps.append(
-            {
-                "gap": f"岗位显式要求：{', '.join(jd_keywords[:3])}",
-                "suggestion": "优先把你最强的那一段经历改写成这些关键词出现的版本。",
-            }
-        )
-
-    summary = "本版本优先保留原简历亮点，再根据岗位要求重排内容与措辞，输出更适合投递的简历摘要。"
-    if jd_keywords:
-        summary = f"围绕 {', '.join(jd_keywords[:3])} 等岗位要求，保留原有亮点并做岗位化重写。"
-
-    skills = "、".join(jd_keywords[:6]) if jd_keywords else "Python、RAG、LLM、简历定制"
-
-    if retrieved:
-        top_bullets = []
-        for idx, c in enumerate(retrieved[:3], 1):
-            top_bullets.append(f"{idx}. {_shorten(c.get('text', ''), 120)}")
-        experience_projects = (
-            "- 基于个人材料构建 JD 对齐与简历定制流程，按岗位要求重写投递内容。\n"
-            "- 保留原简历已有亮点，并在不改变事实的前提下增强岗位贴合度。\n"
-            + "\n".join(f"- {b}" for b in top_bullets)
-        )
-    else:
-        experience_projects = (
-            "- 基于个人材料构建 JD 对齐与简历定制流程，按岗位要求重写投递内容。\n"
-            "- 保留原简历已有亮点，并在不改变事实的前提下增强岗位贴合度。"
-        )
-
-    resume_version = (
-        f"【简历摘要】{summary}\n"
-        f"【技能】{skills}\n"
-        f"【经历/项目】{_shorten(experience_projects, 350)}"
+    return (
+        "# 林子豪\n\n"
+        "## 个人简介\n"
+        "基于目标岗位 JD 的简历定制版本。\n\n"
+        "## 教育经历\n"
+        f"{merged}\n"
     )
 
-    preservation_notes = (
-        "1. 保留了原材料中可确认的核心经历；2. 未添加无法验证的成果；3. 优先使用岗位关键词重排表达，而不是删减内容。"
-    )
 
-    return {
-        "matched_points": matched_points,
-        "gaps": gaps,
-        "tailored_sections": {
-            "summary": summary,
-            "skills": skills,
-            "experience_projects": experience_projects,
-            "resume_version": resume_version,
-            "preservation_notes": preservation_notes,
-        },
-        "questions_to_clarify": [
-            "如果你提供完整简历原文和目标岗位 JD，定制效果会更好。",
-            "如果某段经历有量化结果，补上后会显著提升简历质量。",
-        ],
-    }
-
-
-def generate_result(jd: str, retrieved: List[Dict[str, Any]]):
+def generate_resume(jd: str, retrieved: List[Dict[str, Any]]) -> str:
     client = build_client()
     if client is None:
-        return generate_offline_result(jd, retrieved)
+        return _fallback_resume(jd, retrieved)
 
     resp = client.chat.completions.create(
         model=SETTINGS.model_id,
         messages=[
-            {"role": "system", "content": MATCH_SYSTEM_PROMPT},
+            {"role": "system", "content": RESUME_SYSTEM_PROMPT},
             {"role": "user", "content": build_user_prompt(jd, retrieved)},
         ],
         temperature=0.2,
     )
-    content = resp.choices[0].message.content or "{}"
-    return _extract_json(content)
+    content = resp.choices[0].message.content or ""
+    cleaned = _normalize_model_output(content)
+    if not cleaned:
+        return _fallback_resume(jd, retrieved)
+    return cleaned
+
+
+def generate_result(jd: str, retrieved: List[Dict[str, Any]]):
+    resume_markdown = generate_resume(jd, retrieved)
+    return {
+        "resume_markdown": resume_markdown,
+        "resume_plaintext": _clean_text(re.sub(r"[#*_`>\"]", " ", resume_markdown)),
+    }
 
 
 def _render_markdown(data: Dict[str, Any]) -> str:
-    md: List[str] = []
-    md.append("# JD 对齐要点（带证据）")
-    for x in data.get("matched_points", []):
-        md.append(
-            f"- **要点**：{x.get('point','')}\n"
-            f"  - **证据**：{x.get('evidence_snippet','')}\n"
-            f"  - **匹配原因**：{x.get('why_matched','')}"
-        )
-
-    md.append("\n# 缺口与补强建议")
-    for x in data.get("gaps", []):
-        md.append(f"- **缺口**：{x.get('gap','')}\n  - **建议**：{x.get('suggestion','')}")
-
-    md.append("\n# 可直接粘贴到简历的定制段落（Markdown）")
-    tailored = data.get("tailored_sections", {})
-    md.append("## Summary")
-    md.append(tailored.get("summary", ""))
-    md.append("\n## Skills")
-    md.append(tailored.get("skills", ""))
-    md.append("\n## Experience/Projects")
-    md.append(tailored.get("experience_projects", ""))
-    md.append("\n## Resume Version")
-    md.append(tailored.get("resume_version", ""))
-    md.append("\n## Preservation Notes")
-    md.append(tailored.get("preservation_notes", ""))
-
-    md.append("\n# 需要你补充/确认的问题")
-    for q in data.get("questions_to_clarify", []):
-        md.append(f"- {q}")
-
-    return "\n".join(md)
+    return data.get("resume_markdown", "")
 
 
 def main():
