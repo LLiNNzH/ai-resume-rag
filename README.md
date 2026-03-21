@@ -9,14 +9,6 @@
 系统输出：
 - 一份完整的岗位定制版简历 Markdown
 
-核心目标不是“打分”，而是：
-1. 解析 JD，提取岗位真正关心的能力点；
-2. 对照个人材料，召回相关经历和项目内容；
-3. 直接生成可以投递的完整简历；
-4. 全程坚持真实经历，不编造不存在的项目或成果。
-
----
-
 ## 0) Python 版本
 建议用 **Python 3.9**。
 
@@ -47,7 +39,7 @@ cp .env.example .env
 
 ---
 
-## 3) 准备材料（本地，不进仓库）
+## 3) 准备材料
 
 ```bash
 mkdir -p data/personal
@@ -55,8 +47,8 @@ mkdir -p data/personal
 
 放入：
 - `resume_full.md`（简历全文文本）
-- `projects.md`
-- `skills.md`
+- `projects.md`（其他一些材料）
+- `skills.md`（其他一些材料）
 
 支持 `.md` / `.txt`。
 
@@ -64,10 +56,10 @@ mkdir -p data/personal
 
 ## 4) 建索引（一次性）
 
-> 注意：从仓库根目录执行，用 `-m` 方式运行，保证 `src` 包导入正常。
+> 注意：从仓库根目录执行，用 `-m` 方式运行
 
 ```bash
-python -m src.ingest \
+python3.9 -m src.ingest \
   --input_dir data/personal \
   --persist_dir data/index
 ```
@@ -81,7 +73,7 @@ python -m src.ingest \
 2）运行：
 
 ```bash
-python -m src.match \
+python3.9 -m src.match \
   --jd_file ./jd_sample.txt \
   --out_md ./output_match.md \
   --persist_dir data/index
@@ -108,14 +100,6 @@ POST `http://localhost:8000/match`，body 示例：
 ```json
 {"resume_markdown":"...完整简历正文..."}
 ```
-
----
-
-## 7) GitHub 提交流程（不提交 data/.venv）
-确认 `.gitignore` 已忽略：
-- `.venv/`
-- `data/`
-- `data/index/`
 
 提交代码：
 ```bash
